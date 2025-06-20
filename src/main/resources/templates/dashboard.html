@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LD2410 Sensor Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --gradient-primary: linear-gradient(135deg, #6e8efb, #a777e3);
+            --gradient-success: linear-gradient(135deg, #4facfe, #00f2fe);
+            --gradient-warning: linear-gradient(135deg, #f6d365, #fda085);
+            --gradient-danger: linear-gradient(135deg, #f093fb, #f5576c);
+            --gradient-dark: linear-gradient(135deg, #434343, #000000);
+        }
+
+        body {
+            font-family: 'Poppins', sans-serif;
+            background-color: #f8f9fa;
+        }
+
+        .dashboard-header {
+            background: var(--gradient-dark);
+            color: white;
+            padding: 2rem 0;
+            margin-bottom: 2rem;
+            border-radius: 0 0 20px 20px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+        }
+
+        .metric-card {
+            color: white;
+            text-align: center;
+            padding: 1.5rem;
+            border-radius: 12px;
+            margin-bottom: 20px;
+        }
+
+        .metric-card.detections { background: var(--gradient-primary); }
+        .metric-card.distance { background: var(--gradient-success); }
+        .metric-card.energy { background: var(--gradient-warning); }
+        .metric-card.accuracy { background: var(--gradient-danger); }
+
+        .metric-value {
+            font-size: 2.8rem;
+            font-weight: 700;
+            margin: 10px 0;
+        }
+
+        .log-entry {
+            background: white;
+            border-left: 4px solid #a777e3;
+            padding: 12px;
+            margin-bottom: 10px;
+            border-radius: 0 8px 8px 0;
+            transition: all 0.2s;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+        }
+
+        .log-entry:hover {
+            transform: translateX(5px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+
+        .chart-container {
+            height: 300px;
+            position: relative;
+        }
+    </style>
+</head>
+<body>
+<!-- Header -->
+<div class="dashboard-header">
+    <div class="container">
+        <div class="row align-items-center">
+            <div class="col-md-8">
+                <h1 class="display-5"><i class="fas fa-radar me-2"></i> LD2410 Sensor Dashboard</h1>
+                <p class="mb-0">ESP8266-01 Human Presence Detection</p>
+            </div>
+            <div class="col-md-4 text-md-end">
+                    <span class="badge bg-light text-dark me-2">
+                        <i class="fas fa-database me-1"></i> H2 Database
+                    </span>
+                <a href="/h2-console" class="btn btn-sm btn-outline-light">
+                    <i class="fas fa-cog me-1"></i> DB Console
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="container">
+    <!-- Metrics -->
+    <div class="row mb-4">
+        <div class="col-md-3">
+            <div class="metric-card detections">
+                <i class="fas fa-user fa-2x mb-2"></i>
+                <h5>Total Detections</h5>
+                <div class="metric-value" th:text="${totalCount}">0</div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="metric-card distance">
+                <i class="fas fa-ruler-combined fa-2x mb-2"></i>
+                <h5>Avg Distance</h5>
+                <div class="metric-value" th:text="${avgDistance}">0.0</div>
+                <small>meters</small>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="metric-card energy">
+                <i class="fas fa-bolt fa-2x mb-2"></i>
+                <h5>Avg Energy</h5>
+                <div class="metric-value" th:text="${avgEnergy}">0</div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="metric-card accuracy">
+                <i class="fas fa-crosshairs fa-2x mb-2"></i>
+                <h5>Locations</h5>
+                <div class="metric-value" th:text="${locationStats.size()}">0</div>
+                <small>monitored</small>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="row">
+        <div class="col-lg-8">
+            <!-- Chart -->
+            <div class="card mb-4">
+                <div class="card-header" style="background: var(--gradient-primary); color: white;">
+                    <i class="fas fa-chart-line me-2"></i> Detection Timeline
+                </div>
+                <div class="card-body">
+                    <div class="chart-container">
+                        <canvas id="timelineChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-4">
+            <!-- Activity Log -->
+            <div class="card mb-4">
+                <div class="card-header" style="background: var(--gradient-primary); color: white;">
+                    <i class="fas fa-list-ul me-2"></i> Recent Activity
+                </div>
+                <div class="card-body" style="max-height: 400px; overflow-y: auto;">
+                    <div class="log-entry" th:each="reading : ${recentReadings}">
+                        <div class="d-flex justify-content-between">
+                            <strong th:if="${reading.isMoving}">
+                                <i class="fas fa-walking text-primary me-2"></i> Moving
+                            </strong>
+                            <strong th:unless="${reading.isMoving}">
+                                <i class="fas fa-procedures text-success me-2"></i> Static
+                            </strong>
+                            <small class="text-muted" th:text="${#temporals.format(reading.detectionTime, 'HH:mm')}"></small>
+                        </div>
+                        <div class="mt-2">
+                            <span class="badge bg-primary me-2" th:text="${reading.distance + 'm'}"></span>
+                            <span class="badge bg-warning" th:text="${reading.energy + ' energy'}"></span>
+                            <span class="badge bg-secondary ms-2" th:text="${reading.sensorLocation}"></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Initialize chart
+    const ctx = document.getElementById('timelineChart').getContext('2d');
+    const timelineChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: [],
+            datasets: [{
+                label: 'Detections per Day',
+                data: [],
+                backgroundColor: 'rgba(110, 142, 251, 0.2)',
+                borderColor: 'rgba(110, 142, 251, 1)',
+                borderWidth: 2,
+                tension: 0.3
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: {
+                    beginAtZero: true
+                }
+            }
+        }
+    });
+
+    // Fetch data from API
+    fetch('/api/chart-data')
+        .then(response => response.json())
+        .then(data => {
+            // Update timeline chart
+            timelineChart.data.labels = data.dailyAverages.map(item =>
+                new Date(item.date).toLocaleDateString());
+            timelineChart.data.datasets[0].data = data.dailyAverages.map(item => item.count);
+            timelineChart.update();
+        });
+</script>
+</body>
+</html>
